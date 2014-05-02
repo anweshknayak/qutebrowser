@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import QTabWidget, QTabBar, QSizePolicy
 
 import qutebrowser.config.config as config
 from qutebrowser.config.style import set_register_stylesheet
-from qutebrowser.utils.style import Style
+from qutebrowser.utils.style import AntiUbuntuStyle
 
 
 class TabWidget(QTabWidget):
@@ -59,7 +59,7 @@ class TabWidget(QTabWidget):
     def __init__(self, parent):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setStyle(Style(self.style()))
+        self.setStyle(AntiUbuntuStyle(self.style()))
         set_register_stylesheet(self)
         self.setDocumentMode(True)
         self.setElideMode(Qt.ElideRight)

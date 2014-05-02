@@ -26,6 +26,7 @@ import configparser
 from signal import signal, SIGINT
 from argparse import ArgumentParser
 from base64 import b64encode
+from qutebrowser.utils.style import ScrollbarHidingStyle
 
 import qutebrowser.config.websettings as websettings
 
@@ -93,6 +94,7 @@ class QuteBrowser(QApplication):
         self._opened_urls = []
         self._shutting_down = False
 
+        self.setStyle(ScrollbarHidingStyle(self.style()))
         sys.excepthook = self._exception_hook
 
         self._args = self._parseopts()

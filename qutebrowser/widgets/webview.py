@@ -34,6 +34,7 @@ from qutebrowser.browser.webpage import BrowserPage
 from qutebrowser.browser.hints import HintManager
 from qutebrowser.utils.signals import SignalCache
 from qutebrowser.utils.usertypes import NeighborList
+from qutebrowser.utils.style import ScrollbarHidingStyle
 
 
 class WebView(QWebView):
@@ -88,6 +89,7 @@ class WebView(QWebView):
         self.linkClicked.connect(self.on_link_clicked)
         self.loadStarted.connect(lambda: modeman.maybe_leave('insert'))
         self.loadFinished.connect(self.on_load_finished)
+        self.setStyle(ScrollbarHidingStyle(self.style()))
         # FIXME find some way to hide scrollbars without setScrollBarPolicy
 
     def _init_neighborlist(self):

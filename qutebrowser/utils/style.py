@@ -15,9 +15,10 @@
 # You should have received a copy of the GNU General Public License
 # along with qutebrowser.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Qt style to remove Ubuntu focus rectangle uglyness.
+"""Custom Qt styles.
 
-We might also use this to do more in the future.
+Unfortunately PyQt doesn't support QProxyStyle, so we need to do this the
+hard way...
 """
 
 import functools
@@ -25,12 +26,9 @@ import functools
 from PyQt5.QtWidgets import QCommonStyle, QStyle
 
 
-class Style(QCommonStyle):
+class AntiUbuntuStyle(QCommonStyle):
 
     """Qt style to remove Ubuntu focus rectangle uglyness.
-
-    Unfortunately PyQt doesn't support QProxyStyle, so we need to do this the
-    hard way...
 
     Based on:
 
@@ -75,3 +73,42 @@ class Style(QCommonStyle):
         if element == QStyle.PE_FrameFocusRect:
             return
         return self._style.drawPrimitive(element, option, painter, widget)
+
+
+
+class ScrollbarHidingStyle(QCommonStyle):
+
+    """Style which hides the QWebView scrollbar.
+
+    Based on:
+
+    http://qt-project.org/faq/answer/how_can_i_change_the_width_of_the_scrollbar_of_qwebview
+
+    Attributes:
+        _style: The base/"parent" style.
+    """
+
+    def __init__(self, style):
+        """Initialize all functions we're not overriding.
+
+        This simply calls the corresponding function in self._style.
+
+        Args:
+            style: The base/"parent" style.
+        """
+        self._style = style
+        for method in ['drawComplexControl', 'drawControl', 'drawItemPixmap',
+                       'drawItemText', 'generatedIconPixmap',
+                       'hitTestComplexControl', 'itemPixmapRect',
+                       'itemTextRect', 'polish', 'styleHint',
+                       'subControlRect', 'subElementRect', 'unpolish',
+                       'sizeFromContents', 'drawPrimitive']:
+            target = getattr(self._style, method)
+            setattr(self, method, functools.partial(target))
+        super().__init__()
+
+    def pixelMetric(self, metric, option, widget):
+        if metric == QStyle.PM_ScrollBarExtent and widget is None:
+            return 0
+        else:
+            return super().pixelMetric(metric, option, widget)
