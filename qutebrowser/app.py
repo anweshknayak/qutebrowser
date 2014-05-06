@@ -23,7 +23,6 @@ import logging
 import subprocess
 import configparser
 from bdb import BdbQuit
-from functools import partial
 from signal import signal, SIGINT
 from argparse import ArgumentParser
 from base64 import b64encode
@@ -105,8 +104,7 @@ class QuteBrowser(QApplication):
         super().__init__(sys.argv)
         self._quit_status = {
             'crash': True,
-            'tabs': False,
-            'networkmanager': False
+            'app': False,
         }
         self._timers = []
         self._opened_urls = []
@@ -424,14 +422,6 @@ class QuteBrowser(QApplication):
             history = []
 
         # Try to shutdown gracefully
-        try:
-            self.shutdown(do_quit=False)
-        except Exception:
-            pass
-        try:
-            self.lastWindowClosed.disconnect(self.shutdown)
-        except TypeError:
-            logging.exception("Preventing shutdown failed.")
         QApplication.closeAllWindows()
         dlg = CrashDialog(pages, history, exc)
         ret = dlg.exec_()
@@ -527,32 +517,7 @@ class QuteBrowser(QApplication):
             self.cookiejar.save()
         except AttributeError:
             logging.exception("Could not save cookies.")
-        # Shut down tabs
-        try:
-            self.mainwindow.tabs.shutdown_complete.connect(partial(
-                self._maybe_quit, 'tabs'))
-            self.mainwindow.tabs.shutdown()
-        except AttributeError:  # mainwindow or tabs could still be None
-            logging.exception("No mainwindow/tabs to shut down.")
-            self._maybe_quit('tabs')
-        # Shut down networkmanager
-        try:
-            self.networkmanager.abort_requests()
-            self.networkmanager.destroyed.connect(partial(
-                self._maybe_quit, 'networkmanager'))
-            self.networkmanager.deleteLater()
-        except AttributeError:
-            logging.exception("No networkmanager to shut down.")
-            self._maybe_quit('networkmanager')
-
-    @pyqtSlot()
-    def on_tab_shutdown_complete(self):
-        """Quit application after a shutdown.
-
-        Gets called when all tabs finished shutting down after shutdown().
-        """
-        logging.debug("Shutdown complete, quitting.")
-        self.quit()
+        self._maybe_quit('app')
 
     @pyqtSlot(tuple)
     def command_handler(self, tpl):

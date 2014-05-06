@@ -18,11 +18,9 @@
 """The main browser widgets."""
 
 import logging
-import functools
 
 from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtWebKit import QWebSettings
 from PyQt5.QtWebKitWidgets import QWebView, QWebPage
 
 import qutebrowser.utils.url as urlutils
@@ -51,11 +49,8 @@ class WebView(QWebView):
         hintmanager: The HintManager instance for this view.
         _zoom: A NeighborList with the zoom levels.
         _scroll_pos: The old scroll position.
-        _shutdown_callback: Callback to be called after shutdown.
         _open_target: Where to open the next tab ("normal", "tab", "bgtab")
         _force_open_target: Override for _open_target.
-        _shutdown_callback: The callback to call after shutting down.
-        _destroyed: Dict of all items to be destroyed on shtudown.
 
     Signals:
         scroll_pos_changed: Scroll percentage of current tab changed.
@@ -74,10 +69,8 @@ class WebView(QWebView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._scroll_pos = (-1, -1)
-        self._shutdown_callback = None
         self._open_target = Target.normal
         self._force_open_target = None
-        self._destroyed = {}
         self._zoom = None
         self._init_neighborlist()
         self.page_ = BrowserPage(self)
@@ -93,28 +86,21 @@ class WebView(QWebView):
         self.loadFinished.connect(self.on_load_finished)
         # FIXME find some way to hide scrollbars without setScrollBarPolicy
 
+    def __del__(self):
+        """Release the QWebPage by hand when deleting the QWebView.
+
+        This prevents segfaults.
+
+        See https://code.google.com/p/webscraping/source/browse/webkit.py#325
+        """
+        self.setPage(None)
+
     def _init_neighborlist(self):
         """Initialize the _zoom neighborlist."""
         self._zoom = NeighborList(
             config.get('general', 'zoom-levels'),
             default=config.get('general', 'default-zoom'),
             mode=NeighborList.Modes.block)
-
-    def _on_destroyed(self, sender):
-        """Called when a subsystem has been destroyed during shutdown.
-
-        Args:
-            sender: The object which called the callback.
-        """
-        self._destroyed[sender] = True
-        dbgout = '\n'.join(['{}: {}'.format(k.__class__.__name__, v)
-                           for (k, v) in self._destroyed.items()])
-        logging.debug("{} has been destroyed, new status:\n{}".format(
-            sender.__class__.__name__, dbgout))
-        if all(self._destroyed.values()):
-            if self._shutdown_callback is not None:
-                logging.debug("Everything destroyed, calling callback")
-                self._shutdown_callback()
 
     def _is_editable(self, hitresult):
         """Check if a hit result needs keyboard focus.
@@ -179,36 +165,6 @@ class WebView(QWebView):
         level = self._zoom.getitem(offset)
         self.setZoomFactor(float(level) / 100)
         message.info("Zoom level: {}%".format(level))
-
-    def shutdown(self, callback=None):
-        """Shut down the tab cleanly and remove it.
-
-        Inspired by [1].
-
-        [1] https://github.com/integricho/path-of-a-pyqter/tree/master/qttut08
-
-        Args:
-            callback: Function to call after shutting down.
-        """
-        self._shutdown_callback = callback
-        try:
-            # Avoid loading finished signal when stopping
-            self.loadFinished.disconnect()
-        except TypeError:
-            logging.exception("This should never happen.")
-        self.stop()
-        self.close()
-        self.settings().setAttribute(QWebSettings.JavascriptEnabled, False)
-
-        self._destroyed[self.page_] = False
-        self.page_.destroyed.connect(functools.partial(self._on_destroyed,
-                                                       self.page_))
-        self.page_.deleteLater()
-
-        self._destroyed[self] = False
-        self.destroyed.connect(functools.partial(self._on_destroyed, self))
-        self.deleteLater()
-        logging.debug("Tab shutdown scheduled")
 
     @pyqtSlot(str)
     def on_link_clicked(self, url):

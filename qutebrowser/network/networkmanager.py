@@ -28,30 +28,22 @@ class NetworkManager(QNetworkAccessManager):
     """Our own QNetworkAccessManager.
 
     Attributes:
-        _requests: Pending requests.
         _scheme_handlers: A dictionary (scheme -> handler) of supported custom
                           schemes.
     """
 
     def __init__(self, cookiejar=None, parent=None):
         super().__init__(parent)
-        self._requests = {}
         self._scheme_handlers = {
             'qute': QuteSchemeHandler(),
         }
         if cookiejar is not None:
             self.setCookieJar(cookiejar)
 
-    def abort_requests(self):
-        """Abort all running requests."""
-        for request in self._requests.values():
-            request.abort()
-
     def createRequest(self, op, req, outgoing_data):
         """Return a new QNetworkReply object.
 
-        Extend QNetworkAccessManager::createRequest to save requests in
-        self._requests and handle custom schemes.
+        Extend QNetworkAccessManager::createRequest to handle custom schemes.
 
         Args:
              op: Operation op
@@ -77,6 +69,4 @@ class NetworkManager(QNetworkAccessManager):
                 req.setRawHeader('Accept-Language'.encode('ascii'),
                                  accept_language.encode('ascii'))
             reply = super().createRequest(op, req, outgoing_data)
-            self._requests[id(reply)] = reply
-            reply.destroyed.connect(lambda obj: self._requests.pop(id(obj)))
         return reply

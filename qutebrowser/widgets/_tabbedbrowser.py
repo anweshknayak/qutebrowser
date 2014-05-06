@@ -68,7 +68,6 @@ class TabbedBrowser(TabWidget):
                                  arg 2: y-position in %.
         hint_strings_updated: Hint strings were updated.
                               arg: A list of hint strings.
-        shutdown_complete: The shuttdown is completed.
         quit: The last tab was closed, quit application.
         resized: Emitted when the browser window has resized, so the completion
                  widget can adjust its size to it.
@@ -83,7 +82,6 @@ class TabbedBrowser(TabWidget):
     cur_link_hovered = pyqtSignal(str, str, str)
     cur_scroll_perc_changed = pyqtSignal(int, int)
     hint_strings_updated = pyqtSignal(list)
-    shutdown_complete = pyqtSignal()
     quit = pyqtSignal()
     resized = pyqtSignal('QRect')
 
@@ -98,24 +96,6 @@ class TabbedBrowser(TabWidget):
         self.cur = CurCommandDispatcher(self)
         # FIXME adjust this to font size
         self.setIconSize(QSize(12, 12))
-
-    def _cb_tab_shutdown(self, tab):
-        """Called after a tab has been shut down completely.
-
-        Args:
-            tab: The tab object which has been shut down.
-
-        Emit:
-            shutdown_complete: When the tab shutdown is done completely.
-        """
-        try:
-            self._tabs.remove(tab)
-        except ValueError:
-            logging.exception("tab {} could not be removed".format(tab))
-        logging.debug("Tabs after removing: {}".format(self._tabs))
-        if not self._tabs:  # all tabs shut down
-            logging.debug("Tab shutdown complete.")
-            self.shutdown_complete.emit()
 
     def _connect_tab_signals(self, tab):
         """Set up the needed signals for tab."""
@@ -179,26 +159,6 @@ class TabbedBrowser(TabWidget):
         else:
             return None
 
-    def shutdown(self):
-        """Try to shut down all tabs cleanly.
-
-        Emit:
-            shutdown_complete if the shutdown completed successfully.
-        """
-        try:
-            self.currentChanged.disconnect()
-        except TypeError:
-            pass
-        tabcount = self.count()
-        if tabcount == 0:
-            logging.debug("No tabs -> shutdown complete")
-            self.shutdown_complete.emit()
-            return
-        for tabidx in range(tabcount):
-            logging.debug("Shutting down tab {}/{}".format(tabidx, tabcount))
-            tab = self.widget(tabidx)
-            tab.shutdown(callback=partial(self._cb_tab_shutdown, tab))
-
     @cmdutils.register(instance='mainwindow.tabs')
     def tabclose(self, count=None):
         """Close the current/[count]th tab.
@@ -222,7 +182,7 @@ class TabbedBrowser(TabWidget):
             if not url.isEmpty():
                 self._url_stack.append(url)
             self.removeTab(idx)
-            tab.shutdown(callback=partial(self._cb_tab_shutdown, tab))
+            self._tabs.remove(tab)
         elif last_close == 'quit':
             self.quit.emit()
         elif last_close == 'blank':
