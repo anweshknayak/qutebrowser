@@ -192,11 +192,12 @@ class ConfigManager(QObject):
             lines.append(keyval)
         return lines
 
-    def _from_cp(self, cp):
+    def _from_cp(self, cp, domain):
         """Read the config from a configparser instance.
 
         Args:
             cp: The configparser instance to read the values from.
+            domain: The domain where the value applies to.
         """
         for sectname in self.sections.keys():
             if sectname not in cp:
@@ -205,7 +206,7 @@ class ConfigManager(QObject):
                 if k.startswith(self.ESCAPE_CHAR):
                     k = k[1:]
                 try:
-                    self.set('conf', sectname, k, v)
+                    self.set('conf', sectname, k, v, domain)
                 except ValidationError as e:
                     e.section = sectname
                     e.option = k
@@ -315,7 +316,22 @@ class ConfigManager(QObject):
         except (NoOptionError, NoSectionError, ValidationError) as e:
             message.error("set: {} - {}".format(e.__class__.__name__, e))
 
-    def set(self, layer, sectname, optname, value):
+    @cmdutils.register(name='set_domain', instance='config',
+                       completion=['section', 'option', 'value'])
+    def set_domain_wrapper(self, sectname, optname, value):
+        """Set an option for the current domain.
+
+        Wrapper for self.set() to output exceptions in the status bar.
+        """
+        # FIXME get domain...
+        domain = 'qutebrowser.org'
+        try:
+            self.set('conf', sectname, optname, value, domain)
+        except (NoOptionError, NoSectionError, ValidationError,
+                ValueError) as e:
+            message.error("set: {} - {}".format(e.__class__.__name__, e))
+
+    def set(self, layer, sectname, optname, value, domain=None):
         """Set an option.
 
         Args:
@@ -323,6 +339,7 @@ class ConfigManager(QObject):
             sectname: The name of the section to change.
             optname: The name of the option to change.
             value: The new value.
+            domain: The domain where the value was set, if not global.
 
         Raise:
             NoSectionError: If the specified section doesn't exist.
@@ -341,7 +358,7 @@ class ConfigManager(QObject):
         interpolated = self._interpolation.before_get(self, sectname, optname,
                                                       value, mapping)
         try:
-            sect.setv(layer, optname, value, interpolated)
+            sect.setv(layer, optname, value, interpolated, domain)
         except KeyError:
             raise NoOptionError(optname, sectname)
         else:

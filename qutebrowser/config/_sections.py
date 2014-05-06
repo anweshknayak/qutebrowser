@@ -68,7 +68,7 @@ class Section:
         """Get value keys."""
         return self.values.keys()
 
-    def setv(self, layer, key, value, interpolated):
+    def setv(self, layer, key, value, interpolated, domain):
         """Set the value on a layer.
 
         Args:
@@ -77,6 +77,7 @@ class Section:
             key: The key of the element to set.
             value: The value to set.
             interpolated: The interpolated value, for checking.
+            domain: The domain to set the value for.
         """
         raise NotImplementedError
 
@@ -111,8 +112,8 @@ class KeyValue(Section):
             self.values[k] = v
             self.descriptions[k] = desc
 
-    def setv(self, layer, key, value, interpolated):
-        self.values[key].setv(layer, value, interpolated)
+    def setv(self, layer, key, value, interpolated, domain):
+        self.values[key].setv(layer, value, interpolated, domain)
 
     def dump_userconfig(self):
         changed = []
@@ -179,13 +180,13 @@ class ValueList(Section):
                 self._ordered_value_cache.update(layer)
         return self._ordered_value_cache
 
-    def setv(self, layer, key, value, interpolated):
+    def setv(self, layer, key, value, interpolated, domain):
         self.keytype.validate(key)
         if key in self.layers[layer]:
-            self.layers[layer][key].setv(layer, value, interpolated)
+            self.layers[layer][key].setv(layer, value, interpolated, domain)
         else:
             val = SettingValue(self.valtype)
-            val.setv(layer, value, interpolated)
+            val.setv(layer, value, interpolated, domain)
             self.layers[layer][key] = val
         self._ordered_value_cache = None
 
