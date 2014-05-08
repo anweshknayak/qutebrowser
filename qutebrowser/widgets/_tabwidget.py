@@ -25,6 +25,9 @@ from qutebrowser.config.style import set_register_stylesheet
 from qutebrowser.utils.style import Style
 
 
+# https://stackoverflow.com/questions/3607709/how-to-change-text-alignment-in-qtabwidget
+
+
 class TabWidget(QTabWidget):
 
     """The tabwidget used for TabbedBrowser.
@@ -37,6 +40,7 @@ class TabWidget(QTabWidget):
         QTabWidget::pane {{
             position: absolute;
             top: 0px;
+            text-align: left;
         }}
 
         QTabBar {{
@@ -90,8 +94,27 @@ class TabWidget(QTabWidget):
         except KeyError:
             pass
 
+    def resize_tabs(self):
+        count = self.count()
+        if count != 0:
+            width = (self.width() - 30) / count
+            self.tabBar().setStyleSheet("""
+                QTabBar::tab {{
+                    min-width: {w}px;
+                    max-width: {w}px;
+                    width: {w}px;
+                }}""".format(w=width))
+
     @pyqtSlot(str, str)
     def on_config_changed(self, section, _option):
         """Update attributes when config changed."""
         if section == 'tabbar':
             self._init_config()
+
+    def tabInserted(self, index):
+        self.resize_tabs()
+        super().tabInserted(index)
+
+    def resizeEvent(self, e):
+        self.resize_tabs()
+        return super().resizeEvent(e)
