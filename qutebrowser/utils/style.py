@@ -20,12 +20,14 @@
 We might also use this to do more in the future.
 """
 
+import logging
 import functools
 
-from PyQt5.QtWidgets import QCommonStyle, QStyle
+import sip
+from PyQt5.QtWidgets import QCommonStyle, QStyle, QStyleOptionTab, QTabBar
 
 
-class Style(QCommonStyle):
+class TabStyle(QCommonStyle):
 
     """Qt style to remove Ubuntu focus rectangle uglyness.
 
@@ -36,6 +38,9 @@ class Style(QCommonStyle):
 
     http://stackoverflow.com/a/17294081
     https://code.google.com/p/makehuman/source/browse/trunk/makehuman/lib/qtgui.py
+
+    Tabs based on:
+    http://www.qtcentre.org/wiki/index.php?title=Customizing_QTabWidget%27s_QTabBar
 
     Attributes:
         _style: The base/"parent" style.
@@ -50,12 +55,11 @@ class Style(QCommonStyle):
             style: The base/"parent" style.
         """
         self._style = style
-        for method in ['drawComplexControl', 'drawControl', 'drawItemPixmap',
+        for method in ['drawComplexControl', 'drawItemPixmap',
                        'drawItemText', 'generatedIconPixmap',
                        'hitTestComplexControl', 'itemPixmapRect',
                        'itemTextRect', 'pixelMetric', 'polish', 'styleHint',
-                       'subControlRect', 'subElementRect', 'unpolish',
-                       'sizeFromContents']:
+                       'subControlRect', 'subElementRect', 'unpolish']:
             target = getattr(self._style, method)
             setattr(self, method, functools.partial(target))
         super().__init__()
@@ -75,3 +79,32 @@ class Style(QCommonStyle):
         if element == QStyle.PE_FrameFocusRect:
             return
         return self._style.drawPrimitive(element, option, painter, widget)
+
+    def sizeFromContents(self, typ, option, size, widget):
+        logging.warn("sizeFromContents {}".format(typ))
+        s = self._style.sizeFromContents(typ, option, size, widget)
+        if typ != QStyle.CT_TabBarTab:
+            return s
+        logging.warn("sizeFromContents")
+        #tab = sip.cast(opt, QWebPage.ErrorPageExtensionOption)
+        tab = option
+        if tab.shape in [QTabBar.RoundedWest, QTabBar.RoundedEast,
+                         QTabBar.TriangularWest, QTabBar.TriangularEast]:
+            s.transpose()
+        return s
+
+    def drawControl(self, element, option, painter, widget):
+        logging.warn("drawControl 1")
+        shape_mapping = {
+            QTabBar.RoundedWest: QTabBar.RoundedNorth,
+            QTabBar.TriangularWest: QTabBar.TriangularNorth,
+            QTabBar.RoundedEast: QTabBar.RoundedSouth,
+            QTabBar.TriangularEast: QTabBar.TriangularSouth,
+        }
+        if element != QStyle.CE_TabBarTabLabel:
+            return self._style.drawControl(element, option, painter, widget)
+        logging.warn("drawControl")
+        tab = option
+        opt = QStyleOptionTab(tab)
+        opt.shape = shape_mapping[tab.shape]
+        return self._style.drawControl(element, option, painter, widget)
