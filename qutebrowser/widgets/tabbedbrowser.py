@@ -147,14 +147,12 @@ class TabbedBrowser(TabWidget):
         tab.url_text_changed.connect(self.on_url_text_changed)
         tab.load_status_changed.connect(
             self._filter.create(self.cur_load_status_changed))
-        # hintmanager
-        tab.hintmanager.hint_strings_updated.connect(self.hint_strings_updated)
-        tab.hintmanager.openurl.connect(self.cmd.openurl)
         # misc
         tab.titleChanged.connect(self.on_title_changed)
         tab.iconChanged.connect(self.on_icon_changed)
         tab.page().mainFrame().loadStarted.connect(partial(
             self.on_load_started, tab))
+        tab.hint_strings_updated.connect(self.hint_strings_updated)
 
     def cntwidget(self, count=None):
         """Return a widget based on a count/idx.

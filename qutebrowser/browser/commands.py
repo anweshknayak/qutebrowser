@@ -247,9 +247,6 @@ class CommandDispatcher:
             targetstr: Where to open the links.
         """
         widget = self._tabs.currentWidget()
-        frame = widget.page().mainFrame()
-        if frame is None:
-            raise CommandError("No frame focused!")
         try:
             group = getattr(webelem.Group, groupstr.replace('-', '_'))
         except AttributeError:
@@ -258,7 +255,7 @@ class CommandDispatcher:
             target = getattr(hints.Target, targetstr.replace('-', '_'))
         except AttributeError:
             raise CommandError("Unknown hinting target {}!".format(targetstr))
-        widget.hintmanager.start(frame, widget.url(), group, target)
+        widget.start_hinting(group, target)
 
     @cmdutils.register(instance='mainwindow.tabs.cmd', hide=True)
     def follow_hint(self):

@@ -77,12 +77,14 @@ class WebView(QWebView):
         linkHovered: QWebPages linkHovered signal exposed.
         load_status_changed: The loading status changed
         url_text_changed: Current URL string changed.
+        hint_strings_updated: Connected to the current hintmanager's signal.
     """
 
     scroll_pos_changed = pyqtSignal(int, int)
     linkHovered = pyqtSignal(str, str, str)
     load_status_changed = pyqtSignal(str)
     url_text_changed = pyqtSignal(str)
+    hint_strings_updated = pyqtSignal(list)
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -103,9 +105,7 @@ class WebView(QWebView):
         self.progress = 0
         self._page = BrowserPage(self)
         self.setPage(self._page)
-        self.hintmanager = HintManager(self)
-        self.hintmanager.mouse_event.connect(self.on_mouse_event)
-        self.hintmanager.set_open_target.connect(self.set_force_open_target)
+        self.hintmanager = None
         self.page().setLinkDelegationPolicy(QWebPage.DelegateAllLinks)
         self.page().linkHovered.connect(self.linkHovered)
         self.linkClicked.connect(self.on_link_clicked)
@@ -117,6 +117,7 @@ class WebView(QWebView):
             lambda msg: setattr(self, 'statusbar_message', msg))
         self.page().networkAccessManager().sslErrors.connect(
             lambda *args: setattr(self, '_has_ssl_errors', True))
+        modeman.instance().left.connect(self.on_mode_left)
         # FIXME find some way to hide scrollbars without setScrollBarPolicy
 
     def __repr__(self):
@@ -346,6 +347,24 @@ class WebView(QWebView):
         else:
             raise CommandError("At end of history.")
 
+    def start_hinting(self, group, target):
+        """Create a new HintManager and start hinting.
+
+        Args:
+            group: The hinting mode to use.
+            target: Where to open the links.
+        """
+        frame = self.page().mainFrame()
+        if frame is None:
+            raise CommandError("No frame focused!")
+        hintman = HintManager(self)
+        hintman.mouse_event.connect(self.on_mouse_event)
+        hintman.set_open_target.connect(self.set_force_open_target)
+        hintman.hint_strings_updated.connect(self.hint_strings_updated)
+        hintman.open_hint_url.connect(self.on_open_hint_url)
+        self.hintmanager = hintman
+        hintman.start(frame, self.url(), group, target)
+
     def shutdown(self, callback=None):
         """Shut down the tab cleanly and remove it.
 
@@ -438,6 +457,18 @@ class WebView(QWebView):
         log.modes.debug("focus element: {}".format(not elem.isNull()))
         if not elem.isNull():
             modeman.enter('insert', 'load finished')
+
+    @pyqtSlot(str)
+    def on_mode_left(self, mode):
+        """Remove hintmanager when hinting mode was left."""
+        if mode != 'hint':
+            return
+        self.hintmanager.stop()
+
+    @pyqtSlot('QUrl', bool)
+    def on_open_hint_url(self, url, newtab):
+        """Open a tab after hinting."""
+        self.tabbedbrowser.tabopen(url, newtab)
 
     @pyqtSlot(str)
     def set_force_open_target(self, target):

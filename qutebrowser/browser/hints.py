@@ -41,6 +41,31 @@ Target = enum('normal', 'tab', 'tab_bg', 'yank', 'yank_primary', 'cmd',
               'cmd_tab', 'cmd_tab_bg', 'rapid')
 
 
+class HintContext:
+
+    """Context namespace used for hinting.
+
+    Attributes:
+        frames: The QWebFrames to use.
+        elems: A mapping from keystrings to (elem, label) namedtuples.
+        baseurl: The URL of the current page.
+        target: What to do with the opened links.
+                normal/tab/tab_bg: Get passed to BrowserTab.
+                yank/yank_primary: Yank to clipboard/primary selection
+                cmd/cmd_tab/cmd_tab_bg: Enter link to commandline
+                rapid: Rapid mode with background tabs
+        to_follow: The link to follow when enter is pressed.
+    """
+
+    def __init__(self):
+        self.elems = {}
+        self.target = None
+        self.baseurl = None
+        self.to_follow = None
+        self.frames = []
+        self.connected_frames = []
+
+
 class HintManager(QObject):
 
     """Manage drawing hints over links or other elements.
@@ -49,26 +74,14 @@ class HintManager(QObject):
         HINT_CSS: The CSS template to use for hints.
         HINT_TEXTS: Text displayed for different hinting modes.
 
-    Attributes:
-        _started: Whether we started hinting at the moment.
-        _frames: The QWebFrames to use.
-        _elems: A mapping from keystrings to (elem, label) namedtuples.
-        _baseurl: The URL of the current page.
-        _target: What to do with the opened links.
-                 normal/tab/tab_bg: Get passed to BrowserTab.
-                 yank/yank_primary: Yank to clipboard/primary selection
-                 cmd/cmd_tab/cmd_tab_bg: Enter link to commandline
-                 rapid: Rapid mode with background tabs
-        _to_follow: The link to follow when enter is pressed.
-
     Signals:
         hint_strings_updated: Emitted when the possible hint strings changed.
                               arg: A list of hint strings.
         mouse_event: Mouse event to be posted in the web view.
                      arg: A QMouseEvent
-        openurl: Open a new URL
-                 arg 0: URL to open as QUrl.
-                 arg 1: True if it should be opened in a new tab, else False.
+        open_hint_url: Open a new URL
+                       arg 0: URL to open as QUrl.
+                       arg 1: True if it should be opened in a new tab, else False.
         set_open_target: Set a new target to open the links in.
     """
 
@@ -100,25 +113,8 @@ class HintManager(QObject):
 
     hint_strings_updated = pyqtSignal(list)
     mouse_event = pyqtSignal('QMouseEvent')
-    openurl = pyqtSignal('QUrl', bool)
+    open_hint_url = pyqtSignal('QUrl', bool)
     set_open_target = pyqtSignal(str)
-
-    def __init__(self, parent=None):
-        """Constructor.
-
-        Args:
-            frame: The QWebFrame to use for finding elements and drawing.
-        """
-        super().__init__(parent)
-        self._elems = {}
-        self._target = None
-        self._baseurl = None
-        self._to_follow = None
-        self._started = False
-        self._frames = []
-        self._connected_frames = []
-        modeman.instance().left.connect(self.on_mode_left)
-        modeman.instance().entered.connect(self.on_mode_entered)
 
     def _hint_strings(self, elems):
         """Calculate the hint strings for elems.
@@ -257,10 +253,10 @@ class HintManager(QObject):
         Args:
             elem: The QWebElement to click.
         """
-        if self._target == Target.rapid:
+        if self._ctx.target == Target.rapid:
             target = Target.tab_bg
         else:
-            target = self._target
+            target = self._ctx.target
         self.set_open_target.emit(Target[target])
         # FIXME Instead of clicking the center, we could have nicer heuristics.
         # e.g. parse (-webkit-)border-radius correctly and click text fields at
@@ -285,7 +281,7 @@ class HintManager(QObject):
         Args:
             link: The URL to open.
         """
-        sel = self._target == Target.yank_primary
+        sel = self._ctx.target == Target.yank_primary
         mode = QClipboard.Selection if sel else QClipboard.Clipboard
         QApplication.clipboard().setText(urlutils.urlstring(link), mode)
         message.info("URL yanked to {}".format("primary selection" if sel
@@ -302,7 +298,7 @@ class HintManager(QObject):
             Target.cmd_tab: 'open-tab',
             Target.cmd_tab_bg: 'open-tab-bg',
         }
-        message.set_cmd_text(':{} {}'.format(commands[self._target],
+        message.set_cmd_text(':{} {}'.format(commands[self._ctx.target],
                                              urlutils.urlstring(link)))
 
     def _resolve_link(self, elem, baseurl=None):
@@ -310,7 +306,8 @@ class HintManager(QObject):
 
         Args:
             elem: The QWebElement to get the link of.
-            baseurl: The baseurl of the current tab (overrides self._baseurl).
+            baseurl: The baseurl of the current tab (overrides
+                     self._ctx.baseurl).
 
         Return:
             A QUrl with the absolute link, or None.
@@ -319,7 +316,7 @@ class HintManager(QObject):
         if not link:
             return None
         if baseurl is None:
-            baseurl = self._baseurl
+            baseurl = self._ctx.baseurl
         link = urlutils.qurl(link)
         if link.isRelative():
             link = baseurl.resolved(link)
@@ -348,19 +345,19 @@ class HintManager(QObject):
 
     def _connect_frame_signals(self):
         """Connect the contentsSizeChanged signals to all frames."""
-        for f in self._frames:
+        for f in self._ctx.frames:
             # For some reason we get segfaults sometimes when calling
             # frame.contentsSizeChanged.disconnect() later, maybe because Qt
             # already deleted the frame?
             # We work around this by never disconnecting this signal, and here
             # making sure we don't connect a frame which already was connected
             # at some point earlier.
-            if f in self._connected_frames:
+            if f in self._ctx.connected_frames:
                 logger.debug("Frame {} already connected!".format(f))
             else:
                 logger.debug("Connecting frame {}".format(f))
                 f.contentsSizeChanged.connect(self.on_contents_size_changed)
-                self._connected_frames.append(f)
+                self._ctx.connected_frames.append(f)
 
     def follow_prevnext(self, frame, baseurl, prev=False, newtab=False):
         """Click a "previous"/"next" element on the page.
@@ -379,10 +376,10 @@ class HintManager(QObject):
         if link is None:
             raise CommandError("No {} links found!".format(
                 "prev" if prev else "forward"))
-        self.openurl.emit(link, newtab)
+        self.open_hint_url.emit(link, newtab)
 
     def start(self, mainframe, baseurl, group=webelem.Group.all,
-              target=Target.normal):
+                 target=Target.normal):
         """Start hinting.
 
         Args:
@@ -399,31 +396,40 @@ class HintManager(QObject):
             # start. But since we had a bug where frame is None in
             # on_mode_left, we are extra careful here.
             raise ValueError("start() was called with frame=None")
+        ctx = HintContext()
         elems = []
-        self._frames = webelem.get_child_frames(mainframe)
-        for f in self._frames:
+        ctx.frames = webelem.get_child_frames(mainframe)
+        for f in ctx.frames:
             elems += f.findAllElements(webelem.SELECTORS[group])
         filterfunc = webelem.FILTERS.get(group, lambda e: True)
         visible_elems = [e for e in elems if filterfunc(e) and
                          webelem.is_visible(e, mainframe)]
         if not visible_elems:
             raise CommandError("No elements found.")
-        self._target = target
-        self._baseurl = baseurl
+        ctx.target = target
+        ctx.baseurl = baseurl
         message.text(self.HINT_TEXTS[target])
         strings = self._hint_strings(visible_elems)
         for e, string in zip(visible_elems, strings):
             label = self._draw_label(e, string)
-            self._elems[string] = ElemTuple(e, label)
-        self._started = True
+            ctx.elems[string] = ElemTuple(e, label)
+        self._ctx = ctx
         self._connect_frame_signals()
         self.hint_strings_updated.emit(strings)
         modeman.enter('hint', 'HintManager.start')
 
+    def stop(self):
+        """Clean up when hinting mode was left."""
+        for elem in self._ctx.elems.values():
+            if not elem.label.isNull():
+                elem.label.removeFromDocument()
+        #self._ctx = None   FIXME
+        message.clear()
+
     def handle_partial_key(self, keystr):
         """Handle a new partial keypress."""
         logger.debug("Handling new keystring: '{}'".format(keystr))
-        for (string, elems) in self._elems.items():
+        for (string, elems) in self._ctx.elems.items():
             if string.startswith(keystr):
                 matched = string[:len(keystr)]
                 rest = string[len(keystr):]
@@ -442,7 +448,7 @@ class HintManager(QObject):
 
     def filter_hints(self, filterstr):
         """Filter displayed hints according to a text."""
-        for elems in self._elems.values():
+        for elems in self._ctx.elems.values():
             if elems.elem.toPlainText().lower().startswith(filterstr):
                 if elems.label.attribute('hidden') == 'true':
                     # hidden element which matches again -> unhide it
@@ -455,7 +461,7 @@ class HintManager(QObject):
                 css = self._get_hint_css(elems.elem, elems.label)
                 elems.label.setAttribute('style', css)
         visible = {}
-        for k, e in self._elems.items():
+        for k, e in self._ctx.elems.items():
             if e.label.attribute('hidden') != 'true':
                 visible[k] = e
         if not visible:
@@ -474,7 +480,7 @@ class HintManager(QObject):
         """
         if not (force or config.get('hints', 'auto-follow')):
             self.handle_partial_key(keystr)
-            self._to_follow = keystr
+            self._ctx.to_follow = keystr
             return
         # Handlers which take a QWebElement
         elem_handlers = {
@@ -491,35 +497,35 @@ class HintManager(QObject):
             Target.cmd_tab: self._preset_cmd_text,
             Target.cmd_tab_bg: self._preset_cmd_text,
         }
-        elem = self._elems[keystr].elem
-        if self._target in elem_handlers:
-            elem_handlers[self._target](elem)
-        elif self._target in link_handlers:
+        elem = self._ctx.elems[keystr].elem
+        if self._ctx.target in elem_handlers:
+            elem_handlers[self._ctx.target](elem)
+        elif self._ctx.target in link_handlers:
             link = self._resolve_link(elem)
             if link is None:
                 raise CommandError("No suitable link found for this element.")
-            link_handlers[self._target](link)
+            link_handlers[self._ctx.target](link)
         else:
             raise ValueError("No suitable handler found!")
-        if self._target != Target.rapid:
+        if self._ctx.target != Target.rapid:
             modeman.maybe_leave('hint', 'followed')
 
     def follow_hint(self):
         """Follow the currently selected hint."""
-        if not self._to_follow:
+        if not self._ctx.to_follow:
             raise CommandError("No hint to follow")
-        self.fire(self._to_follow, force=True)
+        self.fire(self._ctx.to_follow, force=True)
 
     @pyqtSlot('QSize')
     def on_contents_size_changed(self, _size):
         """Reposition hints if contents size changed."""
-        if not self._started:
+        if self._ctx is None:
             # We got here because of some earlier hinting, but we can't simply
             # disconnect frames as this leads to occasional segfaults :-/
             logger.debug("Not hinting!")
             return
         logger.debug("Contents size changed...!")
-        for elems in self._elems.values():
+        for elems in self._ctx.elems.values():
             css = self._get_hint_css(elems.elem, elems.label)
             elems.label.setAttribute('style', css)
 
@@ -528,18 +534,3 @@ class HintManager(QObject):
         """Stop hinting when insert mode was entered."""
         if mode == 'insert':
             modeman.maybe_leave('hint', 'insert mode')
-
-    @pyqtSlot(str)
-    def on_mode_left(self, mode):
-        """Stop hinting when hinting mode was left."""
-        if mode != 'hint':
-            return
-        self._started = False
-        for elem in self._elems.values():
-            if not elem.label.isNull():
-                elem.label.removeFromDocument()
-        self._elems = {}
-        self._to_follow = None
-        self._target = None
-        self._frames = []
-        message.clear()
