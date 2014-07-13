@@ -23,9 +23,14 @@ from PyQt5.QtCore import pyqtSlot, pyqtSignal, Qt, QSize
 from PyQt5.QtWidgets import QTabWidget, QTabBar, QSizePolicy
 from PyQt5.QtGui import QIcon, QPixmap
 
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPalette
+from PyQt5.QtWidgets import QCommonStyle, QStyle
+
+
 import qutebrowser.config.config as config
 from qutebrowser.config.style import set_register_stylesheet
-from qutebrowser.utils.style import Style
+from qutebrowser.utils.style import make_proxy_style
 from qutebrowser.utils.qt import qt_ensure_valid
 
 
@@ -84,7 +89,7 @@ class TabWidget(QTabWidget):
         super().__init__(parent)
         self.setTabBar(TabBar())
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setStyle(Style(self.style()))
+        self.setStyle(make_proxy_style(self.style(), TabProxyStyle))
         set_register_stylesheet(self)
         self.setDocumentMode(True)
         self.setElideMode(Qt.ElideRight)
@@ -182,3 +187,63 @@ class TabBar(QTabBar):
             size = super().tabSizeHint(index)
         qt_ensure_valid(size)
         return size
+
+
+class TabProxyStyle:
+
+    """Qt proxy style to remove Ubuntu focus rectangle uglyness.
+
+    Based on:
+
+    http://stackoverflow.com/a/17294081
+    https://code.google.com/p/makehuman/source/browse/trunk/makehuman/lib/qtgui.py
+    """
+
+    def drawPrimitive(self, element, option, painter, widget=None):
+        """Override QCommonStyle.drawPrimitive.
+
+        Call the genuine drawPrimitive of self._style, except when a focus
+        rectangle should be drawn.
+
+        Args:
+            element: PrimitiveElement pe
+            option: const QStyleOption * opt
+            painter: QPainter * p
+            widget: const QWidget * widget
+        """
+        if element == QStyle.PE_FrameFocusRect:
+            return
+        return super().drawPrimitive(element, option, painter, widget)
+
+    def drawItemText(self, painter, rectangle, alignment, palette, enabled,
+                     text, textRole=QPalette.NoRole):
+        """Extend QCommonStyle::drawItemText to not center-align text.
+
+        Since Qt hardcodes the text alignment for tabbar tabs in QCommonStyle,
+        we need to undo this here by deleting the flag again, and align left
+        instead.
+
+
+        Draws the given text in the specified rectangle using the provided
+        painter and palette.
+
+        The text is drawn using the painter's pen, and aligned and wrapped
+        according to the specified alignment. If an explicit textRole is
+        specified, the text is drawn using the palette's color for the given
+        role. The enabled parameter indicates whether or not the item is
+        enabled; when reimplementing this function, the enabled parameter
+        should influence how the item is drawn.
+
+        Args:
+            painter: QPainter *
+            rectangle: const QRect &
+            alignment int (Qt::Alignment)
+            palette: const QPalette &
+            enabled: bool
+            text: const QString &
+            textRole: QPalette::ColorRole textRole
+        """
+        alignment &=~ Qt.AlignHCenter
+        alignment |= Qt.AlignLeft
+        return super().drawItemText(painter, rectangle, alignment, palette,
+                                    enabled, text, textRole)

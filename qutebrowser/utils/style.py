@@ -22,92 +22,34 @@
 We might also use this to do more in the future.
 """
 
+from PyQt5.QtWidgets import QCommonStyle
 import functools
-
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPalette
-from PyQt5.QtWidgets import QCommonStyle, QStyle
+import inspect
 
 
-class Style(QCommonStyle):
+def make_proxy_style(basestyle, proxycls):
 
-    """Qt style to remove Ubuntu focus rectangle uglyness.
+    """Build a new style object based on an existing style and a proxy style.
 
-    Unfortunately PyQt doesn't support QProxyStyle, so we need to do this the
-    hard way...
+    Based on http://alexgaudio.com/2011/10/07/dynamic-inheritance-python.html
 
-    Based on:
-
-    http://stackoverflow.com/a/17294081
-    https://code.google.com/p/makehuman/source/browse/trunk/makehuman/lib/qtgui.py
-
-    Attributes:
-        _style: The base/"parent" style.
+    Args:
+        basecls: The base style object to use.
+        proxycls: The proxy style mixin.
     """
 
-    def __init__(self, style):
-        """Initialize all functions we're not overriding.
+    class NewStyle(QCommonStyle, proxycls):
+        pass
 
-        This simply calls the corresponding function in self._style.
+    obj = NewStyle()
 
-        Args:
-            style: The base/"parent" style.
-        """
-        self._style = style
-        for method in ('drawComplexControl', 'drawControl', 'drawItemPixmap',
-                       'generatedIconPixmap', 'hitTestComplexControl',
-                       'itemPixmapRect', 'itemTextRect', 'pixelMetric',
-                       'polish', 'styleHint', 'subControlRect',
-                       'subElementRect', 'unpolish', 'sizeFromContents'):
-            target = getattr(self._style, method)
-            setattr(self, method, functools.partial(target))
-        super().__init__()
+    for attr, _meth in inspect.getmembers(basestyle, inspect.isbuiltin):
+        if hasattr(proxycls, attr):
+            target = getattr(proxycls, attr)
+        else:
+            target = getattr(basestyle, attr)
+        setattr(NewStyle, attr, functools.partial(target, obj))
 
-    def drawPrimitive(self, element, option, painter, widget=None):
-        """Override QCommonStyle.drawPrimitive.
-
-        Call the genuine drawPrimitive of self._style, except when a focus
-        rectangle should be drawn.
-
-        Args:
-            element: PrimitiveElement pe
-            option: const QStyleOption * opt
-            painter: QPainter * p
-            widget: const QWidget * widget
-        """
-        if element == QStyle.PE_FrameFocusRect:
-            return
-        return self._style.drawPrimitive(element, option, painter, widget)
-
-    def drawItemText(self, painter, rectangle, alignment, palette, enabled,
-                     text, textRole=QPalette.NoRole):
-        """Extend QCommonStyle::drawItemText to not center-align text.
-
-        Since Qt hardcodes the text alignment for tabbar tabs in QCommonStyle,
-        we need to undo this here by deleting the flag again, and align left
-        instead.
-
-
-        Draws the given text in the specified rectangle using the provided
-        painter and palette.
-
-        The text is drawn using the painter's pen, and aligned and wrapped
-        according to the specified alignment. If an explicit textRole is
-        specified, the text is drawn using the palette's color for the given
-        role. The enabled parameter indicates whether or not the item is
-        enabled; when reimplementing this function, the enabled parameter
-        should influence how the item is drawn.
-
-        Args:
-            painter: QPainter *
-            rectangle: const QRect &
-            alignment int (Qt::Alignment)
-            palette: const QPalette &
-            enabled: bool
-            text: const QString &
-            textRole: QPalette::ColorRole textRole
-        """
-        alignment &=~ Qt.AlignHCenter
-        alignment |= Qt.AlignLeft
-        super().drawItemText(painter, rectangle, alignment, palette, enabled,
-                             text, textRole)
+    #NewStyle.__name__ = '{}_{}'.format(
+    #    basestyle.__class__.__name__, proxycls.__name__)
+    return obj
