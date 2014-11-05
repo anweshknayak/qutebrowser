@@ -115,20 +115,20 @@ class SplitTests(unittest.TestCase):
                 items = split.split(cmd)
                 self.assertEqual(items, out[0].split('|'))
 
-    #def test_split_keep_original(self):
-    #    """Test if splitting with keep=True yields the original string."""
-    #    for case in test_data.strip().splitlines():
-    #        cmd, *_out = case.split('/')[:-1]
-    #        cmd = cmd.replace(r'\n', '\n')
-    #        with self.subTest(cmd=cmd):
-    #            items = split.split(cmd, keep=True)
-    #            self.assertEqual(''.join(items), cmd)
+    def test_split_keep_original(self):
+        """Test if splitting with keep=True yields the original string."""
+        for case in test_data.strip().splitlines():
+            cmd, *_out = case.split('/')[:-1]
+            cmd = cmd.replace(r'\n', '\n')
+            with self.subTest(cmd=cmd):
+                items = split.split(cmd, keep=True)
+                self.assertEqual(''.join(items), cmd)
 
-    #def test_split_keep(self):
-    #    """Test splitting with keep=True."""
-    #    for case in test_data.strip().splitlines():
-    #        cmd, *out = case.split('/')[:-1]
-    #        cmd = cmd.replace(r'\n', '\n')
-    #        with self.subTest(cmd=cmd):
-    #            items = split.split(cmd, keep=True)
-    #            self.assertEqual(items, out[1].split('|'))
+    def test_split_keep(self):
+        """Test splitting with keep=True."""
+        for case in test_data.strip().splitlines():
+            cmd, *out = case.split('/')[:-1]
+            cmd = cmd.replace(r'\n', '\n')
+            with self.subTest(cmd=cmd):
+                items = split.split(cmd, keep=True)
+                self.assertEqual(items, out[1].split('|'))

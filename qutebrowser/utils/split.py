@@ -65,7 +65,7 @@ class Arg:
         else:                self.arg += text
 
 
-def shellwords(line):
+def shellwords(line, keep=False):
     arg_list = []
     i = 0; start = 0; arg = Arg()
     while i < len(line):
@@ -75,15 +75,22 @@ def shellwords(line):
             if not match:
                 raise UnmatchedDoubleQuoteError(line)
             i = match.end()
-            snippet = match.group(1)
-            arg.append( re_esc_quote.sub(r'\1', snippet))
+            if keep:
+                arg.append(match.group())
+            else:
+                snippet = match.group(1)
+                arg.append( re_esc_quote.sub(r'\1', snippet))
 
         elif c == "'": # handle single quote:
             match = re_squote.match(line, i)
             if not match:
                 raise UnmatchedSingleQuoteError(line)
             i = match.end()
-            arg.append(match.group(1))
+            if keep:
+                group = 0
+            else:
+                group = 1
+            arg.append(match.group(group))
             # there is _no_ escape-charakter within single quotes!
 
         elif c == "\\": # handle backslash = escape-charakter
@@ -91,11 +98,14 @@ def shellwords(line):
             if not match:
                 raise EOFError(line)
             i = match.end()
-            escaped = match.group(1)
-            if escaped is not None:
-                arg.append(escaped)
+            if keep:
+                arg.append(match.group())
             else:
-                arg.append(match.group(2))
+                escaped = match.group(1)
+                if escaped is not None:
+                    arg.append(escaped)
+                else:
+                    arg.append(match.group(2))
 
         elif c.isspace(): # handle whitespace
             if arg != None:
@@ -103,6 +113,9 @@ def shellwords(line):
             arg = Arg()
             while i < len(line) and line[i].isspace():
                 i += 1
+            if keep:
+                arg_list.append(str(arg))
+                arg = Arg()
         else:
             match = re_outside.match(line, i)
             assert match
