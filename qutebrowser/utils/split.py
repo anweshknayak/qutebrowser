@@ -19,141 +19,95 @@
 
 """Our own fork of shlex.split with some added and removed features."""
 
+import re
+
 from qutebrowser.utils import log
 
+## Semantics:
+## w/o   quotes: \ escapes everything
+## w/i d-quotes: \ escapes only q-quotes and back-slash
+## w/i s-quotes: no escaping is done at all
 
-class ShellLexer:
+re_dquote  = re.compile(r'"(([^"\\]|\\.)*)"')
+re_squote  = re.compile(r"'(.*?)'")
+re_escaped = re.compile(r'\\(.)')
+re_esc_quote = re.compile(r'\\([\\"])')
+re_outside = re.compile(r"""([^\s\\'"]+)""") # " emacs happy
 
-    """A lexical analyzer class for simple shell-like syntaxes.
 
-    Based on Python's shlex, but cleaned up, removed some features, and added
-    some features useful for qutebrowser.
+class EOFError(ValueError):
+    def __init__(self, line):
+        self.line = line
+class UnmatchedQuoteError(EOFError): pass
+class UnmatchedSingleQuoteError(UnmatchedQuoteError):
+    def __str__(self):
+        return "Unmatched single quote: %s" % self.line
+class UnmatchedDoubleQuoteError(UnmatchedQuoteError):
+    def __str__(self):
+        return "Unmatched double quote: %s" % self.line
 
-    Attributes:
-        FIXME
+
+class Arg:
     """
+    Simple helper class for a string-like type which
+    distinguishs between 'empty' and 'undefined'.
+    """
+    def __init__(self):
+        self.arg = None
 
-    def __init__(self, s):
-        self.iterator = iter(s)
-        self.whitespace = ' \t\r\n'
-        self.quotes = '\'"'
-        self.escape = '\\'
-        self.escapedquotes = '"'
-        self.state = ' '
-        self.token = ''
-        self.keep = False
+    def __ne__(self, other): return self.arg != other
+    #def __eq__(self, other): return self.arg == other	# unused
+    #def __repr__(self):      return repr(self.arg)	# unused
+    def __str__(self):       return str(self.arg)
 
-    def read_token(self):
-        """Read a raw token from the input stream."""
-        quoted = False
-        escapedstate = ' '
-        while True:
-            try:
-                nextchar = next(self.iterator)
-            except StopIteration:
-                nextchar = None
-            log.shlexer.vdebug("in state {!r} I see character: {!r}".format(
-                self.state, nextchar))
-            if self.state is None:
-                # past end of file
-                self.token = None
-                break
-            elif self.state == ' ':
-                if nextchar is None:
-                    self.state = None
-                    break
-                elif nextchar in self.whitespace:
-                    log.shlexer.vdebug("I see whitespace in whitespace state")
-                    if self.keep:
-                        self.token += nextchar
-                    if self.token or quoted:
-                        # emit current token
-                        break
-                    else:
-                        continue
-                elif nextchar in self.escape:
-                    if self.keep:
-                        self.token += nextchar
-                    escapedstate = 'a'
-                    self.state = nextchar
-                elif nextchar in self.quotes:
-                    if self.keep:
-                        self.token += nextchar
-                    self.state = nextchar
-                else:
-                    self.token = nextchar
-                    self.state = 'a'
-            elif self.state in self.quotes:
-                quoted = True
-                if nextchar is None:
-                    log.shlexer.vdebug("I see EOF in quotes state")
-                    self.state = None
-                    break
-                if nextchar == self.state:
-                    if self.keep:
-                        self.token += nextchar
-                    self.state = 'a'
-                elif (nextchar in self.escape and
-                        self.state in self.escapedquotes):
-                    if self.keep:
-                        self.token += nextchar
-                    escapedstate = self.state
-                    self.state = nextchar
-                else:
-                    self.token += nextchar
-            elif self.state in self.escape:
-                if nextchar is None:
-                    log.shlexer.vdebug("I see EOF in escape state")
-                    if not self.keep:
-                        self.token += self.state
-                    self.state = None
-                    break
-                # In posix shells, only the quote itself or the escape
-                # character may be escaped within quotes.
-                if (escapedstate in self.quotes and nextchar != self.state and
-                        nextchar != escapedstate and not self.keep):
-                    self.token += self.state
-                self.token += nextchar
-                self.state = escapedstate
-            elif self.state == 'a':
-                if nextchar is None:
-                    self.state = None
-                    break
-                elif nextchar in self.whitespace:
-                    log.shlexer.vdebug("shlex: I see whitespace in word state")
-                    self.state = ' '
-                    if self.keep:
-                        self.token += nextchar
-                    if self.token or quoted:
-                        break   # emit current token
-                    else:
-                        continue
-                elif nextchar in self.quotes:
-                    if self.keep:
-                        self.token += nextchar
-                    self.state = nextchar
-                elif nextchar in self.escape:
-                    if self.keep:
-                        self.token += nextchar
-                    escapedstate = 'a'
-                    self.state = nextchar
-                else:
-                    self.token += nextchar
-        result = self.token
-        self.token = ''
-        if not quoted and result == '':
-            result = None
-        log.shlexer.vdebug("token={!r}".format(result))
-        return result
+    def append(self, text):
+        if self.arg is None: self.arg = text
+        else:                self.arg += text
 
-    def __iter__(self):
-        return self
 
-    def __next__(self):
-        token = self.read_token()
-        if token is None:
-            raise StopIteration
-        return token
+def shellwords(line):
+    arg_list = []
+    i = 0; start = 0; arg = Arg()
+    while i < len(line):
+        c = line[i]
+        if c == '"': # handle double quote:
+            match = re_dquote.match(line, i)
+            if not match:
+                raise UnmatchedDoubleQuoteError(line)
+            i = match.end()
+            snippet = match.group(1)
+            arg.append( re_esc_quote.sub(r'\1', snippet))
+
+        elif c == "'": # handle single quote:
+            match = re_squote.match(line, i)
+            if not match:
+                raise UnmatchedSingleQuoteError(line)
+            i = match.end()
+            arg.append(match.group(1))
+            # there is _no_ escape-charakter within single quotes!
+
+        elif c == "\\": # handle backslash = escape-charakter
+            match = re_escaped.match(line, i)
+            if not match:
+                raise EOFError(line)
+            i = match.end()
+            arg.append(match.group(1))
+
+        elif c.isspace(): # handle whitespace
+            if arg != None:
+                arg_list.append(str(arg))
+            arg = Arg()
+            while i < len(line) and line[i].isspace():
+                i += 1
+        else:
+            match = re_outside.match(line, i)
+            assert match
+            i = match.end()
+            arg.append(match.group())
+
+    if arg != None: arg_list.append(str(arg))
+
+    return arg_list
 
 
 def split(s, keep=False):
@@ -162,6 +116,4 @@ def split(s, keep=False):
     Args:
         keep: Whether to keep are special chars in the split output.
     """
-    lexer = ShellLexer(s)
-    lexer.keep = keep
-    return list(lexer)
+    return shellwords(s)
