@@ -28,9 +28,9 @@ from qutebrowser.utils import log
 ## w/i d-quotes: \ escapes only q-quotes and back-slash
 ## w/i s-quotes: no escaping is done at all
 
-re_dquote  = re.compile(r'"(([^"\\]|\\.)*)"')
-re_squote  = re.compile(r"'(.*?)'")
-re_escaped = re.compile(r'\\(.)')
+re_dquote  = re.compile(r'"(([^"\\]|\\.)*)"?')
+re_squote  = re.compile(r"'(.*?)('|$)")
+re_escaped = re.compile(r'\\(.)|(\\)$')
 re_esc_quote = re.compile(r'\\([\\"])')
 re_outside = re.compile(r"""([^\s\\'"]+)""") # " emacs happy
 
@@ -91,7 +91,11 @@ def shellwords(line):
             if not match:
                 raise EOFError(line)
             i = match.end()
-            arg.append(match.group(1))
+            escaped = match.group(1)
+            if escaped is not None:
+                arg.append(escaped)
+            else:
+                arg.append(match.group(2))
 
         elif c.isspace(): # handle whitespace
             if arg != None:
